@@ -12,6 +12,7 @@ import (
 	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/exprparser"
 	"github.com/nektos/act/pkg/model"
+	"github.com/sirupsen/logrus"
 )
 
 type step interface {
@@ -84,6 +85,9 @@ func runStepExecutor(step step, stage stepStage, executor common.Executor) commo
 			return err
 		}
 
+		cctx := common.JobCancelContext(ctx)
+		rc.Cancelled = cctx != nil && cctx.Err() != nil
+
 		runStep, err := isStepEnabled(ctx, ifExpression, step, stage)
 		if err != nil {
 			stepResult.Conclusion = model.StepStatusFailure
@@ -139,12 +143,18 @@ func runStepExecutor(step step, stage stepStage, executor common.Executor) commo
 			Mode: 0o666,
 		})(ctx)
 
-		timeoutctx, cancelTimeOut := evaluateStepTimeout(ctx, rc.ExprEval, stepModel)
+		stepCtx, cancelStepCtx := context.WithCancel(ctx)
+		defer cancelStepCtx()
+		var cancelTimeOut context.CancelFunc
+		stepCtx, cancelTimeOut = evaluateStepTimeout(stepCtx, rc.ExprEval, stepModel)
 		defer cancelTimeOut()
-		err = executor(timeoutctx)
+		monitorJobCancellation(ctx, stepCtx, cctx, rc, logger, ifExpression, step, stage, cancelStepCtx)
+		startTime := time.Now()
+		err = executor(stepCtx)
+		executionTime := time.Since(startTime)
 
 		if err == nil {
-			logger.WithField("stepResult", stepResult.Outcome).Infof("  \u2705  Success - %s %s", stage, stepString)
+			logger.WithFields(logrus.Fields{"executionTime": executionTime, "stepResult": stepResult.Outcome}).Infof("  \u2705  Success - %s %s [%s]", stage, stepString, executionTime)
 		} else {
 			stepResult.Outcome = model.StepStatusFailure
 
@@ -162,7 +172,7 @@ func runStepExecutor(step step, stage stepStage, executor common.Executor) commo
 				stepResult.Conclusion = model.StepStatusFailure
 			}
 
-			logger.WithField("stepResult", stepResult.Outcome).Errorf("  \u274C  Failure - %s %s", stage, stepString)
+			logger.WithFields(logrus.Fields{"executionTime": executionTime, "stepResult": stepResult.Outcome}).Infof("  \u274C  Failure - %s %s [%s]", stage, stepString, executionTime)
 		}
 		// Process Runner File Commands
 		orgerr := err
@@ -186,6 +196,24 @@ func runStepExecutor(step step, stage stepStage, executor common.Executor) commo
 			return orgerr
 		}
 		return err
+	}
+}
+
+func monitorJobCancellation(ctx context.Context, stepCtx context.Context, jobCancellationCtx context.Context, rc *RunContext, logger logrus.FieldLogger, ifExpression string, step step, stage stepStage, cancelStepCtx context.CancelFunc) {
+	if !rc.Cancelled && jobCancellationCtx != nil {
+		go func() {
+			select {
+			case <-jobCancellationCtx.Done():
+				rc.Cancelled = true
+				logger.Infof("Reevaluate condition %v due to cancellation", ifExpression)
+				keepStepRunning, err := isStepEnabled(ctx, ifExpression, step, stage)
+				logger.Infof("Result condition keepStepRunning=%v", keepStepRunning)
+				if !keepStepRunning || err != nil {
+					cancelStepCtx()
+				}
+			case <-stepCtx.Done():
+			}
+		}()
 	}
 }
 
