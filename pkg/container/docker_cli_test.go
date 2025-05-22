@@ -1,12 +1,3 @@
-// This file is exact copy of https://github.com/docker/cli/blob/9ac8584acfd501c3f4da0e845e3a40ed15c85041/cli/command/container/opts_test.go with:
-// * appended with license information
-// * commented out case 'invalid-mixed-network-types' in test TestParseNetworkConfig
-//
-// docker/cli is licensed under the Apache License, Version 2.0.
-// See DOCKER_LICENSE for the full license text.
-//
-
-//nolint:unparam,whitespace,depguard,dupl,gocritic
 package container
 
 import (
@@ -192,7 +183,6 @@ func TestParseRunWithInvalidArgs(t *testing.T) {
 
 //nolint:gocyclo
 func TestParseWithVolumes(t *testing.T) {
-
 	// A single volume
 	arr, tryit := setupPlatformVolume([]string{`/tmp`}, []string{`c:\tmp`})
 	if config, hostConfig, _ := mustParse(t, tryit); hostConfig.Binds != nil {
@@ -260,7 +250,6 @@ func TestParseWithVolumes(t *testing.T) {
 			t.Fatalf("Error parsing %s. Should have a single bind mount and no volumes", arr[0])
 		}
 	}
-
 }
 
 // setupPlatformVolume takes two arrays of volume specs - a Unix style
@@ -461,7 +450,6 @@ func TestParseDevice(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", deviceMapping, hostconfig.Devices)
 		}
 	}
-
 }
 
 func TestParseNetworkConfig(t *testing.T) {
@@ -598,7 +586,7 @@ func TestParseNetworkConfig(t *testing.T) {
 		//	name:        "invalid-mixed-network-types",
 		//	flags:       []string{"--network", "name=host", "--network", "net1"},
 		//	expectedErr: `conflicting options: cannot attach both user-defined and non-user-defined network-modes`,
-		//},
+		// },
 	}
 
 	for _, tc := range tests {
